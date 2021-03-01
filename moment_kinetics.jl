@@ -15,7 +15,7 @@ using coordinates: define_coordinate
 using velocity_moments: update_moments!#, reset_moments_status!
 using initial_conditions: init_f
 using moment_kinetics_input: run_type
-using moment_kinetics_input: RunType, single, performance_test, scan
+using moment_kinetics_input: performance_test
 #using charge_exchange: charge_exchange_collisions!, charge_exchange_single_stage!
 using time_advance: setup_time_advance!, time_advance!
 #using time_advance: rk_update_f!
