@@ -5,7 +5,7 @@ export advection_input, advection_input_mutable
 export grid_input, grid_input_mutable
 export initial_condition_input, initial_condition_input_mutable
 export species_parameters, species_parameters_mutable
-export species_composition
+export species_composition, species_composition_mutable
 export drive_input, drive_input_mutable
 
 using type_definitions: mk_float, mk_int
@@ -120,7 +120,19 @@ struct species_parameters
     # struct containing the initial condition info in vpa for this species
     vpa_IC::initial_condition_input
 end
-mutable struct species_composition
+mutable struct species_composition_mutable
+    # n_species = total number of evolved species (including ions, neutrals and electrons)
+    n_species::mk_int
+    # n_ion_species is the number of evolved ion species
+    n_ion_species::mk_int
+    # n_neutral_species is the number of evolved neutral species
+    n_neutral_species::mk_int
+    # if boltzmann_electron_response = true, the electron density is fixed to be Nₑ*(eϕ/T_e)
+    boltzmann_electron_response::Bool
+    # electron temperature used for Boltzmann response
+    T_e::Float64
+end
+struct species_composition
     # n_species = total number of evolved species (including ions, neutrals and electrons)
     n_species::mk_int
     # n_ion_species is the number of evolved ion species

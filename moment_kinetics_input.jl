@@ -11,7 +11,7 @@ using input_structs: advection_input, advection_input_mutable
 using input_structs: grid_input, grid_input_mutable
 using input_structs: initial_condition_input, initial_condition_input_mutable
 using input_structs: species_parameters, species_parameters_mutable
-using input_structs: species_composition
+using input_structs: species_composition, species_composition_mutable
 using input_structs: drive_input, drive_input_mutable
 
 @enum RunType single performance_test scan
@@ -111,7 +111,10 @@ function mk_input(scan_input=Dict())
         vpa.advection.frequency, vpa.advection.oscillation_amplitude)
     vpa_immutable = grid_input("vpa", vpa.ngrid, vpa.nelement, vpa.L,
         vpa.discretization, vpa.fd_option, vpa.bc, vpa_advection_immutable)
-    n_species = composition.n_species
+    composition_immutable = species_composition(composition.n_species,
+        composition.n_ion_species, composition.n_neutral_species,
+        composition.boltzmann_electron_response, composition.T_e)
+    n_species = composition_immutable.n_species
     species_immutable = Array{species_parameters,1}(undef,n_species)
     for is ∈ 1:n_species
         if is <= n_ion_species
@@ -134,10 +137,10 @@ function mk_input(scan_input=Dict())
 
     # check input to catch errors/unsupported options
     check_input(run_name, output_dir, nstep, dt, use_semi_lagrange,
-        z_immutable, vpa_immutable, composition, species_immutable)
+        z_immutable, vpa_immutable, composition_immutable, species_immutable)
 
     # return immutable structs for z, vpa, species and composition
-    return run_name, output_dir, t, z_immutable, vpa_immutable, composition,
+    return run_name, output_dir, t, z_immutable, vpa_immutable, composition_immutable,
         species_immutable, charge_exchange_frequency, drive_immutable
 end
 
@@ -226,8 +229,8 @@ function load_defaults(n_ion_species, n_neutral_species, boltzmann_electron_resp
     else
         n_species = n_ion_speces + n_neutral_species + 1
     end
-    composition = species_composition(n_species, n_ion_species, n_neutral_species,
-        boltzmann_electron_response, 1.0)
+    composition = species_composition_mutable(n_species, n_ion_species,
+        n_neutral_species, boltzmann_electron_response, 1.0)
     species = Array{species_parameters_mutable,1}(undef,n_species)
     # initial temperature for each species defaults to Tₑ
     initial_temperature = 1.0
