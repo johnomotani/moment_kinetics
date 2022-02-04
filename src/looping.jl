@@ -1,7 +1,7 @@
-module looping
 """
 Provides convenience macros for shared-memory-parallel loops
 """
+module looping
 
 using ..debugging
 using ..communication: _block_synchronize
@@ -183,6 +183,9 @@ function get_best_ranges(block_rank, block_size, dims, dim_sizes)
 
     return result
 end
+
+"""
+"""
 function get_best_ranges_from_sizes(block_rank, block_size, dim_sizes_list)
     splits = get_splits(block_size, length(dim_sizes_list))
     load_balance = Inf
@@ -214,22 +217,28 @@ function get_best_ranges_from_sizes(block_rank, block_size, dim_sizes_list)
                                                     dim_sizes_list)]
 end
 
-# module variable that we can access by giving fully-qualified name in loop
-# macros
+"""
+module variable that we can access by giving fully-qualified name in loop
+macros
+"""
 const loop_ranges = Ref{LoopRanges}()
 export loop_ranges
 
-# module variable used to store LoopRanges that are swapped into the loop_ranges
-# variable in begin_*_region() functions
+"""
+module variable used to store LoopRanges that are swapped into the loop_ranges
+variable in begin_*_region() functions
+"""
 const loop_ranges_store = Dict{Tuple{Vararg{Symbol}}, LoopRanges}()
 
-#Create ranges for loops with different combinations of variables
-#
-#Arguments
-#---------
-#Keyword arguments `dim=n` are required for each dim in $all_dimensions where
-#`n` is an integer giving the size of the dimension.
 eval(quote
+         """
+         Create ranges for loops with different combinations of variables
+
+         Arguments
+         ---------
+         Keyword arguments `dim=n` are required for each dim in $($all_dimensions) where
+         `n` is an integer giving the size of the dimension.
+         """
          function setup_loop_ranges!(block_rank, block_size; dim_sizes...)
              rank0 = (block_rank == 0)
 
