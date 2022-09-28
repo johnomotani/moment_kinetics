@@ -12,8 +12,8 @@ loop ranges), as at the moment we only run with 1 ion species and 1 neutral spec
 """
 module communication
 
-export allocate_shared, block_rank, block_size, comm_block,
-       comm_world, finalize_comms!, initialize_comms!, global_rank, MPISharedArray
+export allocate_shared, block_rank, block_size, comm_block, comm_world, finalize_comms!,
+       initialize_comms!, global_rank, global_size, MPISharedArray
 
 using MPI
 using SHA
@@ -487,6 +487,13 @@ function _block_synchronize()
 
                     array.previous_is_read .= array.is_read
                     array.previous_is_written .= array.is_written
+                else
+                    # If checking is inactive, set as if at 'previous' the array was
+                    # always read/written so that the next set of checks don't detect a
+                    # 'redundant' call which is actually only 'redundant' just after an
+                    # inactive region (e.g. initialisation or writing output).
+                    array.previous_is_read .= true
+                    array.previous_is_written .= true
                 end
             end
 

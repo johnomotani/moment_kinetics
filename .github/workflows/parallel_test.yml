@@ -10,19 +10,24 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest]
       fail-fast: false
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v2
       - uses: mpi4py/setup-mpi@v1
         with:
           mpi: 'openmpi'
+      - uses: actions/setup-python@v2
       - uses: julia-actions/setup-julia@v1
         with:
-          version: '1'
+          version: '1.7'
           arch: x64
       - uses: julia-actions/julia-buildpkg@v1
+        env:
+          # Use the system Python for PyCall - avoids library linking error on macOS
+          PYTHON: "${{ env.pythonLocation }}/bin/python"
       - run: |
+          pip3 install --user matplotlib
           julia --project -e 'ENV["JULIA_MPI_BINARY"]="system"; using Pkg; Pkg.build("MPI"; verbose=true)'
           julia -O3 --check-bounds=no precompile.jl --debug 1
           # Need to use openmpi so that the following arguments work:
@@ -30,9 +35,9 @@ jobs:
           #   than physical cores).
           # * `--mca mpi_yield_when_idle 1` changes a setting to prevent excessively
           #   terrible performance when oversubscribing.
+          mpiexec -np 3 --mca rmaps_base_oversubscribe 1 julia --project=@. -Jmoment_kinetics.so -O3 --check-bounds=no test/runtests.jl --debug 1
+          mpiexec -np 4 --mca rmaps_base_oversubscribe 1 julia --project=@. -Jmoment_kinetics.so -O3 --check-bounds=no test/runtests.jl --debug 1
           mpiexec -np 2 --mca rmaps_base_oversubscribe 1 julia --project=@. -Jmoment_kinetics.so -O3 --check-bounds=no test/runtests.jl --debug 1 --long
-          mpiexec -np 3 --mca rmaps_base_oversubscribe 1 julia --project=@. -Jmoment_kinetics.so -O3 --check-bounds=no test/runtests.jl --debug 1 --long
-          mpiexec -np 4 --mca rmaps_base_oversubscribe 1 julia --project=@. -Jmoment_kinetics.so -O3 --check-bounds=no test/runtests.jl --debug 1 --long
           # Note: MPI.jl's default implementation is mpich, which has a similar option
           # `--with-device=ch3:sock`, but that needs to be set when compiling mpich.
         shell: bash

@@ -82,12 +82,12 @@ const expected =
       0.2090910094348842 0.20909100943488415; 0.2440328004212212 0.24403280042122127;
       0.2440328004212212 0.24403280042122122; 0.2090910094348842 0.2090910094348842;
       0.18749999999999994 0.18750000000000006],
-     [0.23278940189485675 0.24825654214612683; 0.22988088803916013 0.24474935393736078;
-      0.22431999969286887 0.22877621786390287; 0.22203840138327202 0.20702914336211767;
-      0.22159376231412897 0.19445102655575155; 0.2213757117543681 0.19084861714356624;
-      0.22159376231412897 0.19445102655575153; 0.22203840138327202 0.20702914336211756;
-      0.22431999969286887 0.22877621786390281; 0.22988088803916001 0.24474935393736091;
-      0.23278940189485675 0.24825654214612683], dims=3),
+     [0.2327894018948567 0.2482565421461269; 0.2191252806860825 0.243844773085044;
+      0.20817795225960353 0.22869629722135848; 0.21516422029106266 0.20584407388961623;
+      0.22081291795382973 0.19265693632654532; 0.22137571175436813 0.1908486171435662;
+      0.22081291795382976 0.1926569363265453; 0.2151642202910627 0.20584407388961612;
+      0.2081779522596035 0.2286962972213586; 0.21912528068608247 0.24384477308504401;
+      0.23278940189485675 0.24825654214612694], dims=3),
    # Expected f:
    cat(
      cat(
@@ -185,7 +185,8 @@ test_input_chebyshev = merge(test_input_finite_difference,
 test_input_chebyshev_split_1_moment =
     merge(test_input_chebyshev,
           Dict("run_name" => "chebyshev_pseudospectral_split_1_moment",
-               "evolve_moments_density" => true))
+               "evolve_moments_density" => true,
+               "z_nelement" => 4))
 
 test_input_chebyshev_split_2_moments =
     merge(test_input_chebyshev_split_1_moment,
@@ -268,6 +269,19 @@ function run_test(test_input, rtol; args...)
             phi = phi_zrt[:,1,:]
             n, upar, ppar, qpar, v_t = n_zrst[:,1,:,:], upar_zrst[:,1,:,:], ppar_zrst[:,1,:,:], qpar_zrst[:,1,:,:], v_t_zrst[:,1,:,:]
             f = f_vpazrst[:,:,1,:,:]
+
+            # Unnormalize f
+            if input["evolve_moments_density"]
+                for it ∈ 1:length(time), is ∈ 1:n_species, iz ∈ 1:nz
+                    f[:,iz,is,it] .*= n[iz,is,it]
+                end
+            end
+            if input["evolve_moments_parallel_pressure"]
+                for it ∈ 1:length(time), is ∈ 1:n_species, iz ∈ 1:nz
+                    vth = sqrt(2.0*ppar[iz,is,it]/n[iz,is,it])
+                    f[:,iz,is,it] ./= vth
+                end
+            end
         end
 
         # Create coordinates

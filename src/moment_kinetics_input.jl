@@ -12,6 +12,7 @@ using ..communication
 using ..file_io: input_option_error, open_output_file
 using ..finite_differences: fd_check_option
 using ..input_structs
+using ..numerical_dissipation: setup_numerical_dissipation
 
 @enum RunType single performance_test scan
 const run_type = single
@@ -44,7 +45,7 @@ function mk_input(scan_input=Dict())
     n_ion_species = 1
     # n_neutral_species is the number of evolved neutral species
     # currently only n_neutral_species = 0 is supported
-    n_neutral_species = 1
+    n_neutral_species = get(scan_input, "n_neutral_species", 1)
     # * if electron_physics=boltzmann_electron_response, then the electron density is
     #   fixed to be N_e*(eϕ/T_e)
     # * if electron_physics=boltzmann_electron_response_with_simple_sheath, then the
@@ -101,6 +102,7 @@ function mk_input(scan_input=Dict())
         s.z_IC.initialization_option = get(scan_input, "z_IC_option$i", species[1].z_IC.initialization_option)
         s.initial_density = get(scan_input, "initial_density$i", 0.5)
         s.initial_temperature = get(scan_input, "initial_temperature$i", species[1].initial_temperature)
+        s.z_IC.width = get(scan_input, "z_IC_width$i", species[1].z_IC.width)
         s.z_IC.density_amplitude = get(scan_input, "z_IC_density_amplitude$i", species[1].z_IC.density_amplitude)
         s.z_IC.density_phase = get(scan_input, "z_IC_density_phase$i", species[1].z_IC.density_phase)
         s.z_IC.upar_amplitude = get(scan_input, "z_IC_upar_amplitude$i", species[1].z_IC.upar_amplitude)
@@ -108,6 +110,7 @@ function mk_input(scan_input=Dict())
         s.z_IC.temperature_amplitude = get(scan_input, "z_IC_temperature_amplitude$i", species[1].z_IC.temperature_amplitude)
         s.z_IC.temperature_phase = get(scan_input, "z_IC_temperature_phase$i", species[1].z_IC.temperature_phase)
         s.vpa_IC.initialization_option = get(scan_input, "vpa_IC_option$i", species[1].vpa_IC.initialization_option)
+        s.vpa_IC.width = get(scan_input, "vpa_IC_width$i", species[1].vpa_IC.width)
         s.vpa_IC.density_amplitude = get(scan_input, "vpa_IC_density_amplitude$i", species[1].vpa_IC.density_amplitude)
         s.vpa_IC.density_phase = get(scan_input, "vpa_IC_density_phase$i", species[1].vpa_IC.density_phase)
         s.vpa_IC.upar_amplitude = get(scan_input, "vpa_IC_upar_amplitude$i", species[1].vpa_IC.upar_amplitude)
@@ -132,6 +135,7 @@ function mk_input(scan_input=Dict())
     # Heun's method, SSP RK3 and 4-stage SSP RK3)
     n_rk_stages = get(scan_input, "n_rk_stages", 4)
     split_operators = get(scan_input, "split_operators", false)
+    runtime_plots = get(scan_input, "runtime_plots", false)
 
     # overwrite some default parameters related to the r grid
     # ngrid is number of grid points per element
@@ -141,6 +145,7 @@ function mk_input(scan_input=Dict())
     # determine the discretization option for the r grid
     # supported options are "chebyshev_pseudospectral" and "finite_difference"
     r.discretization = get(scan_input, "r_discretization", "finite_difference")
+    r.fd_option = get(scan_input, "r_finite_difference_option", "third_order_upwind")
     # determine the boundary condition to impose in r
     # supported options are "constant", "periodic" and "wall"
     r.bc = get(scan_input, "r_bc", "periodic")
@@ -153,6 +158,7 @@ function mk_input(scan_input=Dict())
     # determine the discretization option for the z grid
     # supported options are "chebyshev_pseudospectral" and "finite_difference"
     z.discretization = get(scan_input, "z_discretization", "chebyshev_pseudospectral")
+    z.fd_option = get(scan_input, "z_finite_difference_option", "third_order_upwind")
     # determine the boundary condition to impose in z
     # supported options are "constant", "periodic" and "wall"
     z.bc = get(scan_input, "z_bc", "wall")
@@ -170,12 +176,17 @@ function mk_input(scan_input=Dict())
     # determine the discretization option for the vpa grid
     # supported options are "chebyshev_pseudospectral" and "finite_difference"
     vpa.discretization = get(scan_input, "vpa_discretization", "chebyshev_pseudospectral")
+    vpa.fd_option = get(scan_input, "vpa_finite_difference_option", "third_order_upwind")
+
+    num_diss_params = setup_numerical_dissipation(
+        get(scan_input, "numerical_dissipation", Dict{String,Any}()))
 
     #########################################################################
     ########## end user inputs. do not modify following code! ###############
     #########################################################################
 
-    t = time_input(nstep, dt, nwrite, use_semi_lagrange, n_rk_stages, split_operators)
+    t = time_input(nstep, dt, nwrite, use_semi_lagrange, n_rk_stages, split_operators,
+                   runtime_plots)
     # replace mutable structures with immutable ones to optimize performance
     # and avoid possible misunderstandings
     z_advection_immutable = advection_input(z.advection.option, z.advection.constant_speed,
@@ -233,7 +244,7 @@ function mk_input(scan_input=Dict())
 
     # return immutable structs for z, vpa, species and composition
     all_inputs = (run_name, output_dir, evolve_moments, t, z_immutable, r_immutable, vpa_immutable,
-                  composition, species_immutable, collisions, drive_immutable)
+                  composition, species_immutable, collisions, drive_immutable, num_diss_params)
     println(io, "\nAll inputs returned from mk_input():")
     println(io, all_inputs)
     close(io)
@@ -527,6 +538,10 @@ function check_coordinate_input(coord, coord_name, io)
     # supported options are "constant" and "periodic"
     if coord.bc == "constant"
         println(io,">$coord_name.bc = 'constant'.  enforcing constant incoming BC in $coord_name.")
+    elseif coord.bc == "zero"
+        println(io,">$coord_name.bc = 'zero'.  enforcing zero incoming BC in $coord_name.")
+    elseif coord.bc == "both_zero"
+        println(io,">$coord_name.bc = 'both_zero'.  enforcing zero BC in $coord_name.")
     elseif coord.bc == "periodic"
         println(io,">$coord_name.bc = 'periodic'.  enforcing periodicity in $coord_name.")
     elseif coord_name == "z" && coord.bc == "wall"

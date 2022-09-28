@@ -28,54 +28,35 @@ struct ios
     fields::IOStream
 end
 
-# Use this long-winded type (found by using `typeof(v)` where `v` is a variable
-# returned from `NCDatasets.defVar()`) because compiler does not seem to be
-# able to pick up the return types of `defVar()` at compile time, so without
-# using it the result returned from `setup_file_io()` is not a concrete type.
-nc_var_type{N} = Union{
-   NCDatasets.CFVariable{mk_float, N,
-                         NCDatasets.Variable{mk_float, N, NCDatasets.NCDataset},
-                         NCDatasets.Attributes{NCDatasets.NCDataset{Nothing}},
-                         NamedTuple{(:fillvalue, :scale_factor, :add_offset,
-                                     :calendar, :time_origin, :time_factor),
-                                    NTuple{6, Nothing}}},
-   NCDatasets.CFVariable{mk_float, N,
-                         NCDatasets.Variable{mk_float, N,
-                                             NCDatasets.NCDataset{Nothing}},
-                         NCDatasets.Attributes{NCDatasets.NCDataset{Nothing}},
-                         NamedTuple{(:fillvalue, :scale_factor, :add_offset,
-                                     :calendar, :time_origin, :time_factor),
-                                    NTuple{6, Nothing}}}}
-
 """
 structure containing the data/metadata needed for netcdf file i/o
 """
-struct netcdf_info
+struct netcdf_info{Ttime, Tfi, Tphi, Tmom}
     # file identifier for the netcdf file to which data is written
     fid::NCDataset
     # handle for the time variable
-    time::nc_var_type{1}
+    time::Ttime
     # handle for the distribution function variable
-    f::nc_var_type{5}
+    f::Tfi
     # handle for the electrostatic potential variable
-    phi::nc_var_type{3}
+    phi::Tphi
     # handle for the species density
-    density::nc_var_type{4}
+    density::Tmom
     # handle for the species parallel flow
-    parallel_flow::nc_var_type{4}
+    parallel_flow::Tmom
     # handle for the species parallel pressure
-    parallel_pressure::nc_var_type{4}
+    parallel_pressure::Tmom
     # handle for the species parallel heat flux
-    parallel_heat_flux::nc_var_type{4}
+    parallel_heat_flux::Tmom
     # handle for the species thermal speed
-    thermal_speed::nc_var_type{4}
+    thermal_speed::Tmom
 end
 
 """
 open the necessary output files
 """
 function setup_file_io(output_dir, run_name, vpa, z, r, composition,
-                       collisions, evolve_ppar)
+                       collisions, evolve_density, evolve_upar, evolve_ppar)
     begin_serial_region()
     @serial_region begin
         # Only read/write from first process in each 'block'
@@ -88,7 +69,7 @@ function setup_file_io(output_dir, run_name, vpa, z, r, composition,
         mom_io = open_output_file(out_prefix, "moments_vs_t")
         fields_io = open_output_file(out_prefix, "fields_vs_t")
         cdf = setup_netcdf_io(out_prefix, r, z, vpa, composition, collisions,
-                              evolve_ppar)
+                              evolve_density, evolve_upar, evolve_ppar)
         #return ios(ff_io, mom_io, fields_io), cdf
         return ios(mom_io, fields_io), cdf
     end
@@ -129,11 +110,11 @@ function define_dimensions!(fid, nvpa, nz, nr, n_species, n_ion_species=nothing,
 end
 
 """
-    define_static_variables!(vpa,vperp,z,r,composition,collisions,evolve_ppar)
+    define_static_variables!(vpa,vperp,z,r,composition,collisions,evolve_density,evolve_upar,evolve_ppar)
 
 Define static (i.e. time-independent) variables for an output file.
 """
-function define_static_variables!(fid,vpa,z,r,composition,collisions,evolve_ppar)
+function define_static_variables!(fid,vpa,z,r,composition,collisions,evolve_density,evolve_upar,evolve_ppar)
     # create and write the "r" variable to file
     varname = "r"
     attributes = Dict("description" => "radial coordinate")
@@ -187,6 +168,20 @@ function define_static_variables!(fid,vpa,z,r,composition,collisions,evolve_ppar
     vartype = mk_float
     var = defVar(fid, varname, vartype, dims, attrib=attributes)
     var[:] = collisions.charge_exchange
+    # create and write the "evolve_density" variable to file
+    varname = "evolve_density"
+    attributes = Dict("description" => "flag indicating if the density is separately evolved")
+    vartype = mk_int
+    dims = ("n_species",)
+    var = defVar(fid, varname, vartype, dims, attrib=attributes)
+    var[:] = evolve_density
+    # create and write the "evolve_upar" variable to file
+    varname = "evolve_upar"
+    attributes = Dict("description" => "flag indicating if the parallel flow is separately evolved")
+    vartype = mk_int
+    dims = ("n_species",)
+    var = defVar(fid, varname, vartype, dims, attrib=attributes)
+    var[:] = evolve_upar
     # create and write the "evolve_ppar" variable to file
     varname = "evolve_ppar"
     attributes = Dict("description" => "flag indicating if the parallel pressure is separately evolved")
@@ -259,7 +254,8 @@ end
 """
 setup file i/o for netcdf
 """
-function setup_netcdf_io(prefix, r, z, vpa, composition, collisions, evolve_ppar)
+function setup_netcdf_io(prefix, r, z, vpa, composition, collisions, evolve_density,
+                         evolve_upar, evolve_ppar)
     # the netcdf file will be given by output_dir/run_name with .cdf appended
     filename = string(prefix,".cdf")
     # if a netcdf file with the requested name already exists, remove it
@@ -272,7 +268,7 @@ function setup_netcdf_io(prefix, r, z, vpa, composition, collisions, evolve_ppar
     define_dimensions!(fid, vpa.n, z.n, r.n, composition.n_species,
                        composition.n_ion_species, composition.n_neutral_species)
     ### create and write static variables to file ###
-    define_static_variables!(fid,vpa,z,r,composition,collisions,evolve_ppar)
+    define_static_variables!(fid,vpa,z,r,composition,collisions,evolve_density,evolve_upar,evolve_ppar)
     ### create variables for time-dependent quantities and store them ###
     ### in a struct for later access ###
     cdf_time, cdf_f, cdf_phi, cdf_density, cdf_upar, cdf_ppar, cdf_qpar, cdf_vth =
@@ -391,16 +387,16 @@ function write_data_to_binary(ff, moments, fields, t, n_species, cdf, t_idx)
         # add the time for this time slice to the netcdf file
         cdf.time[t_idx] = t
         # add the distribution function data at this time slice to the netcdf file
-        cdf.f[:,:,:,:,t_idx] = ff
+        cdf.f[:,:,:,:,t_idx] .= ff
         # add the electrostatic potential data at this time slice to the netcdf file
-        cdf.phi[:,:,t_idx] = fields.phi
+        cdf.phi[:,:,t_idx] .= fields.phi
         # add the density data at this time slice to the netcdf file
         for is ∈ 1:n_species
-            cdf.density[:,:,:,t_idx] = moments.dens
-            cdf.parallel_flow[:,:,:,t_idx] = moments.upar
-            cdf.parallel_pressure[:,:,:,t_idx] = moments.ppar
-            cdf.parallel_heat_flux[:,:,:,t_idx] = moments.qpar
-            cdf.thermal_speed[:,:,:,t_idx] = moments.vth
+            cdf.density[:,:,:,t_idx] .= moments.dens
+            cdf.parallel_flow[:,:,:,t_idx] .= moments.upar
+            cdf.parallel_pressure[:,:,:,t_idx] .= moments.ppar
+            cdf.parallel_heat_flux[:,:,:,t_idx] .= moments.qpar
+            cdf.thermal_speed[:,:,:,t_idx] .= moments.vth
         end
     end
     return nothing
@@ -424,6 +420,48 @@ and returns the corresponding io stream (identifier)
 function open_output_file(prefix, ext)
     str = string(prefix,".",ext)
     return io = open(str,"w")
+end
+
+"""
+Reload pdf and moments from an existing output file.
+"""
+function reload_evolving_fields!(pdf, moments, restart_filename, time_index,
+                                 composition, r, z, vpa)
+    code_time = 0.0
+    begin_serial_region()
+    @serial_region begin
+        fid = NCDataset(restart_filename,"r")
+        try
+            if time_index < 0
+                time_index = fid.dim["ntime"]
+            end
+            restart_n_species = fid.dim["n_species"]
+            restart_nr = fid.dim["nr"]
+            restart_nz = fid.dim["nz"]
+            restart_nvpa = fid.dim["nvpa"]
+            if restart_n_species != composition.n_species || restart_nr != r.n ||
+                restart_nz != z.n || restart_nvpa != vpa.n
+
+                error("Dimensions of restart file and input do not match.\n" *
+                      "Restart file was n_species=$restart_n_species, nr=$restart_nr, " *
+                      "nz=$restart_nz, nvpa=$restart_nvpa.\n" *
+                      "Input file gave  n_species=$(composition.n_species), nr=$(r.n), " *
+                      "nz=$(z.n), nvpa=$(vpa.n).")
+            end
+
+            code_time = fid["time"].var[time_index]
+            pdf.norm .= fid["f"].var[:,:,:,:,time_index]
+            moments.dens .= fid["density"].var[:,:,:,time_index]
+            moments.upar .= fid["parallel_flow"].var[:,:,:,time_index]
+            moments.ppar .= fid["parallel_pressure"].var[:,:,:,time_index]
+            moments.qpar .= fid["parallel_heat_flux"].var[:,:,:,time_index]
+            moments.vth .= fid["thermal_speed"].var[:,:,:,time_index]
+        finally
+            close(fid)
+        end
+    end
+
+    return code_time
 end
 
 """
